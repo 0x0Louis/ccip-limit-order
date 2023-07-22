@@ -108,6 +108,14 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
         return _makerFee;
     }
 
+    function getFeeRecipient() external view returns (address feeRecipient) {
+        return _feeRecipient;
+    }
+
+    function getPendingFill(uint64 chainSelector, uint256 orderId) external view returns (PendingFill memory) {
+        return _pendingFills[chainSelector][orderId];
+    }
+
     function createOrder(Party calldata maker, Party calldata taker) external returns (uint256 orderId) {
         orderId = _orderCount++;
 
