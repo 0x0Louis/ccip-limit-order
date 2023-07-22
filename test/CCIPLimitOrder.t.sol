@@ -36,8 +36,8 @@ contract CCIPLimitOrderTest is Test {
         forwarderRouterA = new MockForwarderRouter(CHAIN_SELECTOR_A);
         forwarderRouterB = new MockForwarderRouter(CHAIN_SELECTOR_B);
 
-        ccipLimitOrderA = new CCIPLimitOrder(address(forwarderRouterA), CHAIN_SELECTOR_A, 0, 0, feeReceiverA);
-        ccipLimitOrderB = new CCIPLimitOrder(address(forwarderRouterB), CHAIN_SELECTOR_B, 0, 0, feeReceiverB);
+        ccipLimitOrderA = new CCIPLimitOrder(address(forwarderRouterA), CHAIN_SELECTOR_A, 100, 200, feeReceiverA);
+        ccipLimitOrderB = new CCIPLimitOrder(address(forwarderRouterB), CHAIN_SELECTOR_B, 300, 400, feeReceiverB);
 
         forwarderRouterA.setTargetContract(CHAIN_SELECTOR_B, address(forwarderRouterB));
         forwarderRouterB.setTargetContract(CHAIN_SELECTOR_A, address(forwarderRouterA));
@@ -90,8 +90,10 @@ contract CCIPLimitOrderTest is Test {
 
         assertEq(tokenA.balanceOf(address(ccipLimitOrderA)), 0, "test_FillOrderSameChain::3");
         assertEq(tokenB.balanceOf(address(ccipLimitOrderB)), 0, "test_FillOrderSameChain::4");
-        assertEq(tokenA.balanceOf(bob), 1e18, "test_FillOrderSameChain::5");
-        assertEq(tokenB.balanceOf(alice), 10e18, "test_FillOrderSameChain::6");
+        assertEq(tokenA.balanceOf(bob), 1e18 * 98 / 100, "test_FillOrderSameChain::5");
+        assertEq(tokenB.balanceOf(alice), 10e18 * 99 / 100, "test_FillOrderSameChain::6");
+        assertEq(tokenA.balanceOf(feeReceiverA), 1e18 * 2 / 100, "test_FillOrderSameChain::7");
+        assertEq(tokenB.balanceOf(feeReceiverA), 10e18 * 1 / 100, "test_FillOrderSameChain::8");
     }
 
     function test_FillOrderMultiChain() public {

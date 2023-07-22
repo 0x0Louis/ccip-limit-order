@@ -246,10 +246,10 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
         IERC20 takerToken = IERC20(order.taker.token.toAddress());
 
         if (makerFee > 0) makerToken.safeTransfer(_feeRecipient, makerFee);
-        if (takerFee > 0) takerToken.safeTransfer(_feeRecipient, takerFee);
+        if (takerFee > 0) takerToken.safeTransferFrom(msg.sender, _feeRecipient, takerFee);
 
-        takerToken.safeTransferFrom(msg.sender, order.maker.account.toAddress(), takerAmount - takerFee);
         makerToken.safeTransfer(order.taker.account.toAddress(), makerAmount - makerFee);
+        takerToken.safeTransferFrom(msg.sender, order.maker.account.toAddress(), takerAmount - takerFee);
 
         emit OrderFilled(orderId);
     }
