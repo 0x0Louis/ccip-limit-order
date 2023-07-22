@@ -89,8 +89,9 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
     {
         currentChainSelector = chainSelector;
 
-        _setTakerFee(takerFee);
-        _setMakerFee(makerFee);
+        if (takerFee != 0) _setTakerFee(takerFee);
+        if (makerFee != 0) _setMakerFee(makerFee);
+
         _setFeeRecipient(feeRecipient);
     }
 
