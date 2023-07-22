@@ -4,13 +4,16 @@ pragma solidity ^0.8.13;
 import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 
-import {CCIPBase, Client} from "./CCIPBase.sol";
+import {CCIPBase, Client, Bytes} from "./CCIPBase.sol";
 
 contract OrderFactory is Ownable2Step, CCIPBase {
     using SafeERC20 for IERC20;
+    using Bytes for bytes;
+    using Bytes for bytes32;
+    using Bytes for address;
 
-    error InvalidMaker(address sender, address maker);
-    error InvalidTaker(address sender, address taker);
+    error InvalidMaker(bytes32 sender, bytes32 maker);
+    error InvalidTaker(bytes32 sender, bytes32 taker);
     error InvalidState(State expected, State actual);
     error InvalidTakerFee(uint48 takerFee);
     error InvalidMakerFee(uint48 makerFee);
@@ -34,8 +37,8 @@ contract OrderFactory is Ownable2Step, CCIPBase {
     }
 
     struct Party {
-        address account;
-        IERC20 token;
+        bytes32 account;
+        bytes32 token;
         uint256 amount;
     }
 
@@ -48,7 +51,7 @@ contract OrderFactory is Ownable2Step, CCIPBase {
     uint256 public constant BASIS_POINTS = 10000;
     uint256 public constant MAX_FEE = BASIS_POINTS / 20; // 5%
 
-    uint64 public immutable chainSelector;
+    uint64 public immutable currentChainSelector;
 
     uint256 private _orderCount;
 
@@ -58,14 +61,14 @@ contract OrderFactory is Ownable2Step, CCIPBase {
 
     mapping(uint256 => Order) private _orders;
 
-    constructor(address router_, uint64 chainSelector_, uint48 takerFee_, uint48 makerFee_, address feeRecipient_)
-        CCIPBase(router_)
+    constructor(address router, uint64 chainSelector, uint48 takerFee, uint48 makerFee, address feeRecipient)
+        CCIPBase(router)
     {
-        chainSelector = chainSelector_;
+        currentChainSelector = chainSelector;
 
-        _setTakerFee(takerFee_);
-        _setMakerFee(makerFee_);
-        _setFeeRecipient(feeRecipient_);
+        _setTakerFee(takerFee);
+        _setMakerFee(makerFee);
+        _setFeeRecipient(feeRecipient);
     }
 
     function getOrder(uint256 orderId) external view returns (Order memory) {
@@ -83,11 +86,11 @@ contract OrderFactory is Ownable2Step, CCIPBase {
     function createOrder(Party calldata maker, Party calldata taker) external {
         uint256 orderId = _orderCount++;
 
-        if (maker.account != msg.sender) revert InvalidMaker(msg.sender, maker.account);
+        if (maker.account != msg.sender.toBytes32()) revert InvalidMaker(msg.sender.toBytes32(), maker.account);
 
         _orders[orderId] = Order({state: State.Created, maker: maker, taker: taker});
 
-        maker.token.safeTransferFrom(msg.sender, address(this), maker.amount);
+        IERC20(maker.token.toAddress()).safeTransferFrom(msg.sender, address(this), maker.amount);
 
         emit OrderCreated(orderId, maker, taker);
     }
@@ -130,7 +133,7 @@ contract OrderFactory is Ownable2Step, CCIPBase {
 
         order.state = State.Cancelled;
 
-        order.maker.token.safeTransfer(order.maker.account, order.maker.amount);
+        IERC20(order.maker.token.toAddress()).safeTransfer(order.maker.account.toAddress(), order.maker.amount);
 
         emit OrderCancelled(orderId);
     }
