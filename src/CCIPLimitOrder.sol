@@ -27,6 +27,7 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
     error InvalidTakerToken(bytes32 token, bytes32 takerToken);
     error InvalidTakerAmount(uint256 amount, uint256 takerAmount);
     error PendingFillNotExpired();
+    error NoPendingFill(address account, uint64 chainSelector, uint256 orderId);
 
     event OrderCreated(uint256 indexed orderId, Party maker, Party taker);
     event OrderFilled(uint256 indexed orderId);
@@ -64,7 +65,6 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
     }
 
     struct PendingFill {
-        bytes32 account;
         bytes32 token;
         uint256 amount;
         uint256 timestamp;
@@ -83,7 +83,7 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
     address private _feeRecipient;
 
     mapping(uint256 => Order) private _orders;
-    mapping(uint64 => mapping(uint256 => PendingFill)) private _pendingFills;
+    mapping(bytes32 => mapping(uint64 => mapping(uint256 => PendingFill))) private _pendingFills;
 
     constructor(address router, uint64 chainSelector, uint48 takerFee, uint48 makerFee, address feeRecipient)
         CCIPBase(router)
@@ -112,8 +112,12 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
         return _feeRecipient;
     }
 
-    function getPendingFill(uint64 chainSelector, uint256 orderId) external view returns (PendingFill memory) {
-        return _pendingFills[chainSelector][orderId];
+    function getPendingFill(bytes32 account, uint64 chainSelector, uint256 orderId)
+        external
+        view
+        returns (PendingFill memory)
+    {
+        return _pendingFills[account][chainSelector][orderId];
     }
 
     function createOrder(Party calldata maker, Party calldata taker) external returns (uint256 orderId) {
@@ -141,10 +145,12 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
         bytes32 targetContract = _getTargetContract(chainSelector);
         if (targetContract == 0) revert UnsupportedChain(chainSelector);
 
-        if (_pendingFills[chainSelector][orderId].account != 0) revert OrderAlreadyPending(chainSelector, orderId);
+        if (_pendingFills[msg.sender.toBytes32()][chainSelector][orderId].timestamp != 0) {
+            revert OrderAlreadyPending(chainSelector, orderId);
+        }
 
-        _pendingFills[chainSelector][orderId] =
-            PendingFill({account: msg.sender.toBytes32(), token: token, amount: amount, timestamp: block.timestamp});
+        _pendingFills[msg.sender.toBytes32()][chainSelector][orderId] =
+            PendingFill({token: token, amount: amount, timestamp: block.timestamp});
 
         IERC20(token.toAddress()).safeTransferFrom(msg.sender, address(this), amount);
 
@@ -178,12 +184,12 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
     }
 
     function cancelPendingFill(uint64 chainSelector, uint256 orderId) external returns (bool) {
-        PendingFill memory pendingFill = _pendingFills[chainSelector][orderId];
+        PendingFill memory pendingFill = _pendingFills[msg.sender.toBytes32()][chainSelector][orderId];
 
-        if (pendingFill.account != msg.sender.toBytes32()) revert InvalidSender(msg.sender.toBytes32());
+        if (pendingFill.timestamp == 0) revert NoPendingFill(msg.sender, chainSelector, orderId);
         if (pendingFill.timestamp + MIN_PENDING_FILL_DURATION > block.timestamp) revert PendingFillNotExpired();
 
-        delete _pendingFills[chainSelector][orderId];
+        delete _pendingFills[msg.sender.toBytes32()][chainSelector][orderId];
 
         IERC20(pendingFill.token.toAddress()).safeTransfer(msg.sender, pendingFill.amount);
 
@@ -318,7 +324,7 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
         Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](1);
         tokenAmounts[0] = Client.EVMTokenAmount({token: token.toAddress(), amount: amount});
 
-        delete _pendingFills[message.sourceChainSelector][orderId];
+        delete _pendingFills[sender][message.sourceChainSelector][orderId];
 
         IERC20 makerToken = IERC20(message.destTokenAmounts[0].token);
         uint256 makerAmount = message.destTokenAmounts[0].amount;
