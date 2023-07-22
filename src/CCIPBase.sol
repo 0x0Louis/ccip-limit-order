@@ -88,8 +88,6 @@ abstract contract CCIPBase is Ownable2Step, CCIPReceiver {
             feeToken: feeToken
         });
 
-        _transferTokens(tokenAmounts, msg.sender);
-
         uint256 fee = IRouterClient(getRouter()).getFee(destChainSelector, message);
 
         _handleFee(feeToken, maxFee, fee);
@@ -102,7 +100,7 @@ abstract contract CCIPBase is Ownable2Step, CCIPReceiver {
         emit MessageSent(messageId);
     }
 
-    function _transferTokens(Client.EVMTokenAmount[] memory tokenAmounts, address from) internal {
+    function _transferTokensFrom(Client.EVMTokenAmount[] memory tokenAmounts, address from) internal {
         for (uint256 i; i < tokenAmounts.length; ++i) {
             address token = tokenAmounts[i].token;
 
