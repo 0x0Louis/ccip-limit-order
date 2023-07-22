@@ -50,4 +50,35 @@ abstract contract CCIPBase is Ownable2Step, CCIPReceiver {
     function _isTrustedToken(address token) internal view returns (bool trusted) {
         return _trustedTokens[token];
     }
+
+    function _ccipSend(
+        uint64 destChainSelector,
+        bytes32 receiver,
+        bytes memory data,
+        Client.EVMTokenAmount[] memory tokenAmounts,
+        address feeToken,
+        uint256 maxFee,
+        uint256 gasLimit
+    ) internal {
+        Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({
+            receiver: abi.encode(receiver),
+            data: data,
+            tokenAmounts: tokenAmounts,
+            extraArgs: Client._argsToBytes(Client.EVMExtraArgsV1({gasLimit: gasLimit, strict: false})),
+            feeToken: feeToken
+        });
+
+        uint256 fee = IRouterClient(getRouter()).getFee(destChainSelector, message);
+
+        _handleFee(feeToken, maxFee, fee);
+
+        bool isFeeNative = feeToken == address(0);
+
+        bytes32 messageId =
+            IRouterClient(getRouter()).ccipSend{value: isFeeNative ? fee : 0}(destChainSelector, message);
+
+        emit MessageSent(messageId);
+    }
+
+    function _handleFee(address feeToken, uint256 maxFee, uint256 fee) internal view virtual {}
 }
