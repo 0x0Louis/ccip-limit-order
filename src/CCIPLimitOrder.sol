@@ -6,7 +6,7 @@ import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 
 import {CCIPBase, Client, Bytes} from "./CCIPBase.sol";
 
-contract OrderFactory is Ownable2Step, CCIPBase {
+contract CCIPLimitOrder is Ownable2Step, CCIPBase {
     using SafeERC20 for IERC20;
     using Bytes for bytes;
     using Bytes for bytes32;
