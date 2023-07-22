@@ -11,4 +11,12 @@ library Bytes {
             output := mload(add(input, 0x20))
         }
     }
+
+    function toBytes(bytes32 input) internal pure returns (bytes memory output) {
+        output = new bytes(32);
+
+        assembly {
+            mstore(add(output, 0x20), input)
+        }
+    }
 }
