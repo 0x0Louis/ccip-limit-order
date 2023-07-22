@@ -112,6 +112,9 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
         orderId = _orderCount++;
 
         if (maker.account != msg.sender.toBytes32()) revert InvalidMaker(msg.sender.toBytes32(), maker.account);
+        if (!_isTrustedToken(maker.token.toAddress()) || !_isTrustedToken(taker.token.toAddress())) {
+            revert UntrustedToken(maker.token.toAddress());
+        }
 
         _orders[orderId] = Order({state: State.Created, maker: maker, taker: taker});
 
@@ -121,16 +124,16 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
     }
 
     function fillOrder(uint64 chainSelector, uint256 orderId, bytes32 token, uint256 amount) external returns (bool) {
-        bytes32 targetContract = _getTargetContract(chainSelector);
-
-        if (targetContract == 0) revert UnsupportedChain(chainSelector);
-        if (!_isTrustedToken(token.toAddress())) revert UntrustedToken(token.toAddress());
-        if (_pendingFills[chainSelector][orderId].account != 0) revert OrderAlreadyPending(chainSelector, orderId);
-
         if (chainSelector == currentChainSelector) {
             _fillOrder(orderId);
             return true;
         }
+
+        if (!_isTrustedToken(token.toAddress())) revert UntrustedToken(token.toAddress());
+        bytes32 targetContract = _getTargetContract(chainSelector);
+        if (targetContract == 0) revert UnsupportedChain(chainSelector);
+
+        if (_pendingFills[chainSelector][orderId].account != 0) revert OrderAlreadyPending(chainSelector, orderId);
 
         _pendingFills[chainSelector][orderId] =
             PendingFill({account: msg.sender.toBytes32(), token: token, amount: amount, timestamp: block.timestamp});
@@ -245,7 +248,7 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
         if (makerFee > 0) makerToken.safeTransfer(_feeRecipient, makerFee);
         if (takerFee > 0) takerToken.safeTransfer(_feeRecipient, takerFee);
 
-        takerToken.safeTransferFrom(msg.sender, address(this), takerAmount - takerFee);
+        takerToken.safeTransferFrom(msg.sender, order.maker.account.toAddress(), takerAmount - takerFee);
         makerToken.safeTransfer(order.taker.account.toAddress(), makerAmount - makerFee);
 
         emit OrderFilled(orderId);
