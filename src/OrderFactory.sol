@@ -11,6 +11,8 @@ contract OrderFactory {
     error InvalidState(State expected, State actual);
 
     event OrderCreated(uint256 indexed orderId, Party maker, Party taker);
+    event OrderFilled(uint256 indexed orderId);
+    event OrderCancelled(uint256 indexed orderId);
 
     enum State {
         Invalid,
@@ -40,7 +42,7 @@ contract OrderFactory {
     }
 
     function createOrder(Party calldata maker, Party calldata taker) external {
-        orderId = _orderCount++;
+        uint256 orderId = _orderCount++;
 
         if (maker.account != msg.sender) revert InvalidMaker(msg.sender, maker.account);
 
@@ -69,5 +71,19 @@ contract OrderFactory {
         order.maker.token.safeTransfer(order.taker.account, order.maker.amount);
 
         emit OrderFilled(orderId);
+    }
+
+    function cancelOrder(uint256 orderId) external {
+        Order storage order = _orders[orderId];
+
+        State state = order.state;
+
+        if (state != State.Created) revert InvalidState(State.Created, state);
+
+        order.state = State.Cancelled;
+
+        order.maker.token.safeTransfer(order.maker.account, order.maker.amount);
+
+        emit OrderCancelled(orderId);
     }
 }
