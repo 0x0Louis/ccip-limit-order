@@ -15,12 +15,15 @@ abstract contract CCIPBase is Ownable2Step, CCIPReceiver {
     error SameTrustedTokenStatus(bool status);
     error UntrustedToken(address token);
 
-    mapping(uint64 => bytes32) private _targetContracts;
-    mapping(address => bool) private _trustedTokens;
-
     event TargetContractSet(uint64 indexed chainSelector, bytes32 indexed targetContract);
     event TrustedTokenSet(address indexed token, bool trusted);
     event MessageSent(bytes32 indexed messageId);
+    event FeeTokenSet(address feeToken);
+
+    address private _feeToken;
+
+    mapping(uint64 => bytes32) private _targetContracts;
+    mapping(address => bool) private _trustedTokens;
 
     constructor(address router) CCIPReceiver(router) {}
 
@@ -30,6 +33,10 @@ abstract contract CCIPBase is Ownable2Step, CCIPReceiver {
 
     function isTrustedToken(address token) external view returns (bool trusted) {
         return _isTrustedToken(token);
+    }
+
+    function getFeeToken() external view returns (address feeToken) {
+        return _feeToken;
     }
 
     function setTargetContract(uint64 chainSelector, bytes32 targetContract) external onlyOwner {
@@ -49,6 +56,12 @@ abstract contract CCIPBase is Ownable2Step, CCIPReceiver {
         emit TrustedTokenSet(token, trusted);
     }
 
+    function setFeeToken(address feeToken) external onlyOwner {
+        _feeToken = feeToken;
+
+        emit FeeTokenSet(feeToken);
+    }
+
     function _getTargetContract(uint64 chainSelector) internal view returns (bytes32 targetContract) {
         targetContract = _targetContracts[chainSelector];
     }
@@ -62,10 +75,11 @@ abstract contract CCIPBase is Ownable2Step, CCIPReceiver {
         bytes32 receiver,
         bytes memory data,
         Client.EVMTokenAmount[] memory tokenAmounts,
-        address feeToken,
         uint256 maxFee,
         uint256 gasLimit
     ) internal {
+        address feeToken = _feeToken;
+
         Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({
             receiver: Bytes.toBytes(receiver),
             data: data,
