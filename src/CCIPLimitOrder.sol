@@ -107,8 +107,8 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
         return _makerFee;
     }
 
-    function createOrder(Party calldata maker, Party calldata taker) external {
-        uint256 orderId = _orderCount++;
+    function createOrder(Party calldata maker, Party calldata taker) external returns (uint256 orderId) {
+        orderId = _orderCount++;
 
         if (maker.account != msg.sender.toBytes32()) revert InvalidMaker(msg.sender.toBytes32(), maker.account);
 
@@ -119,7 +119,7 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
         emit OrderCreated(orderId, maker, taker);
     }
 
-    function fillOrder(uint64 chainSelector, uint256 orderId, bytes32 token, uint256 amount) external {
+    function fillOrder(uint64 chainSelector, uint256 orderId, bytes32 token, uint256 amount) external returns (bool) {
         bytes32 targetContract = _getTargetContract(chainSelector);
 
         if (targetContract == 0) revert UnsupportedChain(chainSelector);
@@ -141,9 +141,11 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
             type(uint256).max, // todo add a maxFee
             200_000 // todo add a gasLimit
         );
+
+        return true;
     }
 
-    function cancelOrder(uint256 orderId) external {
+    function cancelOrder(uint256 orderId) external returns (bool) {
         Order storage order = _orders[orderId];
 
         State state = order.state;
@@ -155,9 +157,11 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
         IERC20(order.maker.token.toAddress()).safeTransfer(order.maker.account.toAddress(), order.maker.amount);
 
         emit OrderCancelled(orderId);
+
+        return true;
     }
 
-    function cancelPendingFill(uint64 chainSelector, uint256 orderId) external {
+    function cancelPendingFill(uint64 chainSelector, uint256 orderId) external returns (bool) {
         PendingFill storage pendingFill = _pendingFills[chainSelector][orderId];
 
         if (pendingFill.account != msg.sender.toBytes32()) revert InvalidSender(msg.sender.toBytes32());
@@ -168,6 +172,8 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
         IERC20(pendingFill.token.toAddress()).safeTransfer(msg.sender, pendingFill.amount);
 
         emit PendingFillCancelled(chainSelector, orderId);
+
+        return true;
     }
 
     function setTakerFee(uint48 takerFee) external onlyOwner {
