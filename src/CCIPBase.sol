@@ -6,6 +6,8 @@ import {IRouterClient} from "ccip/contracts/interfaces/IRouterClient.sol";
 import {CCIPReceiver, Client} from "ccip/contracts/applications/CCIPReceiver.sol";
 import {SafeERC20, IERC20} from "openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
+import {Bytes} from "./library/Bytes.sol";
+
 abstract contract CCIPBase is Ownable2Step, CCIPReceiver {
     error SameTargetContract(bytes32 targetContract);
     error SameTrustedTokenStatus(bool status);
@@ -61,7 +63,7 @@ abstract contract CCIPBase is Ownable2Step, CCIPReceiver {
         uint256 gasLimit
     ) internal {
         Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({
-            receiver: abi.encode(receiver),
+            receiver: Bytes.toBytes(receiver),
             data: data,
             tokenAmounts: tokenAmounts,
             extraArgs: Client._argsToBytes(Client.EVMExtraArgsV1({gasLimit: gasLimit, strict: false})),
