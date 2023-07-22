@@ -333,7 +333,7 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
         makerToken.safeTransfer(sender.toAddress(), makerAmount - makerFeeAmount);
     }
 
-    function _takeOrder(Client.Any2EVMMessage memory message, bytes32, bytes32, uint256, uint256 orderId) private {
+    function _takeOrder(Client.Any2EVMMessage memory, bytes32, bytes32, uint256, uint256 orderId) private {
         Order storage order = _orders[orderId];
 
         order.state = State.Filled;
