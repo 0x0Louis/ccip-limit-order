@@ -143,6 +143,49 @@ contract CCIPLimitOrderTest is Test {
         assertEq(tokenA.balanceOf(bob), 1e18 * 96 / 100, "test_FillOrderMultiChain::15");
         assertEq(tokenB.balanceOf(alice), 10e18 * 99 / 100, "test_FillOrderMultiChain::16");
     }
+
+    function test_revert_FillOrderMultiChain() public {
+        vm.startPrank(alice);
+        tokenA.mint(alice, 1e18);
+        tokenA.approve(address(ccipLimitOrderA), 1e18);
+
+        CCIPLimitOrder.Party memory maker =
+            CCIPLimitOrder.Party({account: alice.toBytes32(), token: address(tokenA).toBytes32(), amount: 1e18});
+
+        CCIPLimitOrder.Party memory taker =
+            CCIPLimitOrder.Party({account: 0, token: address(tokenB).toBytes32(), amount: 10e18});
+
+        uint256 orderId = ccipLimitOrderA.createOrder(maker, taker);
+        vm.stopPrank();
+
+        vm.startPrank(bob);
+        tokenB.mint(bob, 10e18);
+        tokenB.approve(address(ccipLimitOrderB), 10e18);
+
+        ccipLimitOrderB.fillOrder(CHAIN_SELECTOR_A, orderId, address(tokenB).toBytes32(), 10e18);
+        vm.stopPrank();
+
+        vm.expectRevert(abi.encodeWithSelector(CCIPLimitOrder.InvalidSender.selector, Bytes.toBytes32(address(this))));
+        ccipLimitOrderA.cancelOrder(orderId);
+
+        vm.prank(alice);
+        ccipLimitOrderA.cancelOrder(orderId);
+
+        vm.expectRevert(abi.encodeWithSelector(CCIPLimitOrder.InvalidState.selector, 1, 4));
+        forwarderRouterA.routeMessage();
+
+        vm.expectRevert(abi.encodeWithSelector(CCIPLimitOrder.InvalidSender.selector, Bytes.toBytes32(address(this))));
+        ccipLimitOrderB.cancelPendingFill(CHAIN_SELECTOR_A, orderId);
+
+        vm.expectRevert(CCIPLimitOrder.PendingFillNotExpired.selector);
+        vm.prank(bob);
+        ccipLimitOrderB.cancelPendingFill(CHAIN_SELECTOR_A, orderId);
+
+        vm.warp(block.timestamp + ccipLimitOrderB.MIN_PENDING_FILL_DURATION());
+
+        vm.prank(bob);
+        ccipLimitOrderB.cancelPendingFill(CHAIN_SELECTOR_A, orderId);
+    }
 }
 
 contract MockERC20 is ERC20 {

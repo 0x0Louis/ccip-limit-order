@@ -166,6 +166,7 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
         State state = order.state;
 
         if (state != State.Created) revert InvalidState(State.Created, state);
+        if (order.maker.account != msg.sender.toBytes32()) revert InvalidSender(msg.sender.toBytes32());
 
         order.state = State.Cancelled;
 
@@ -177,7 +178,7 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
     }
 
     function cancelPendingFill(uint64 chainSelector, uint256 orderId) external returns (bool) {
-        PendingFill storage pendingFill = _pendingFills[chainSelector][orderId];
+        PendingFill memory pendingFill = _pendingFills[chainSelector][orderId];
 
         if (pendingFill.account != msg.sender.toBytes32()) revert InvalidSender(msg.sender.toBytes32());
         if (pendingFill.timestamp + MIN_PENDING_FILL_DURATION > block.timestamp) revert PendingFillNotExpired();
