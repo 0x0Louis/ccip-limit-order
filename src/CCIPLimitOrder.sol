@@ -26,6 +26,7 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
     error FeeTooHigh(uint256 fee, uint256 maxFee);
     error InsufficientNative(uint256 value, uint256 fee);
     error InvalidFeeToken(address feeToken);
+    error InvalidAmounts(uint256 makerAmount, uint256 takerAmount);
 
     event OrderCreated(uint256 indexed orderId, Party maker, Party taker);
     event OrderFilled(uint256 indexed orderId);
@@ -121,6 +122,7 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
         _verifySender(maker.account, msg.sender.toBytes32());
         _verifyToken(maker.token);
         _verifyToken(taker.token);
+        _verifyAmounts(maker.amount, taker.amount);
 
         _orders[orderId] = Order({state: State.Created, maker: maker, taker: taker});
 
@@ -253,6 +255,10 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
 
     function _verifyToken(address token) private view {
         if (!_isTrustedToken(token)) revert UntrustedToken(token);
+    }
+
+    function _verifyAmounts(uint256 makerAmount, uint256 takerAmount) private pure {
+        if (makerAmount == 0 || takerAmount == 0) revert InvalidAmounts(makerAmount, takerAmount);
     }
 
     function _isOrderFillable(State state, Party memory taker, bytes32 sender, address token, uint256 amount)
