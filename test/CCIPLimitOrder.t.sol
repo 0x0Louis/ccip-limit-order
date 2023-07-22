@@ -133,15 +133,15 @@ contract CCIPLimitOrderTest is Test {
 
         assertEq(tokenA.balanceOf(address(ccipLimitOrderA)), 0, "test_FillOrderMultiChain::9");
         assertEq(tokenB.balanceOf(address(ccipLimitOrderB)), 0, "test_FillOrderMultiChain::10");
-        assertEq(tokenA.balanceOf(bob), 1e18, "test_FillOrderMultiChain::11");
+        assertEq(tokenA.balanceOf(bob), 1e18 * 96 / 100, "test_FillOrderMultiChain::11");
         assertEq(tokenB.balanceOf(alice), 0, "test_FillOrderMultiChain::12");
 
         forwarderRouterA.routeMessage();
 
         assertEq(tokenA.balanceOf(address(ccipLimitOrderA)), 0, "test_FillOrderMultiChain::13");
         assertEq(tokenB.balanceOf(address(ccipLimitOrderB)), 0, "test_FillOrderMultiChain::14");
-        assertEq(tokenA.balanceOf(bob), 1e18, "test_FillOrderMultiChain::15");
-        assertEq(tokenB.balanceOf(alice), 10e18, "test_FillOrderMultiChain::16");
+        assertEq(tokenA.balanceOf(bob), 1e18 * 96 / 100, "test_FillOrderMultiChain::15");
+        assertEq(tokenB.balanceOf(alice), 10e18 * 99 / 100, "test_FillOrderMultiChain::16");
     }
 }
 

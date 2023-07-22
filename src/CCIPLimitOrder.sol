@@ -286,15 +286,8 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
         order.taker.account = sender;
         order.state = State.Filling;
 
-        uint256 makerAmount = order.maker.amount;
-        IERC20 makerToken = IERC20(order.maker.token.toAddress());
-
-        uint256 makerFeeAmount = (makerAmount * _makerFee) / BASIS_POINTS;
-
-        if (makerFeeAmount > 0) makerToken.safeTransfer(_feeRecipient, makerFeeAmount);
-
         Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](1);
-        tokenAmounts[0] = Client.EVMTokenAmount({token: address(makerToken), amount: makerAmount - makerFeeAmount});
+        tokenAmounts[0] = Client.EVMTokenAmount({token: order.maker.token.toAddress(), amount: order.maker.amount});
 
         _ccipSend(
             message.sourceChainSelector,
