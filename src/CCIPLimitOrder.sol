@@ -209,6 +209,24 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
         _setFeeRecipient(feeRecipient);
     }
 
+    function _verifyState(State expected, State actual) private pure {
+        if (expected != actual) revert InvalidState(expected, actual);
+    }
+
+    function _verifySender(bytes32 expectedSender, bytes32 actualSender) private pure {
+        if (expectedSender != actualSender) revert InvalidSender(expectedSender, actualSender);
+    }
+
+    function _verifyToken(bytes32 token) private view {
+        if (!_isTrustedToken(token.toAddress())) revert UntrustedToken(token.toAddress());
+    }
+
+    function _verifyTaker(Party memory taker, bytes32 sender, bytes32 token, uint256 amount) private pure {
+        if (taker.account != 0 && taker.account != sender) revert InvalidTaker(taker.account, sender);
+        if (taker.token != token) revert InvalidTakerToken(taker.token, token);
+        if (taker.amount != amount) revert InvalidTakerAmount(taker.amount, amount);
+    }
+
     function _setTakerFee(uint48 takerFee) private {
         if (takerFee > MAX_FEE) revert InvalidTakerFee(takerFee);
         if (takerFee == _takerFee) revert SameTakerFee(takerFee);
@@ -351,23 +369,5 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
 
         if (takerFeeAmount > 0) takerToken.safeTransfer(_feeRecipient, takerFeeAmount);
         takerToken.safeTransfer(order.maker.account.toAddress(), takerAmount - takerFeeAmount);
-    }
-
-    function _verifyState(State expected, State actual) private pure {
-        if (expected != actual) revert InvalidState(expected, actual);
-    }
-
-    function _verifySender(bytes32 expectedSender, bytes32 actualSender) private pure {
-        if (expectedSender != actualSender) revert InvalidSender(expectedSender, actualSender);
-    }
-
-    function _verifyToken(bytes32 token) private view {
-        if (!_isTrustedToken(token.toAddress())) revert UntrustedToken(token.toAddress());
-    }
-
-    function _verifyTaker(Party memory taker, bytes32 sender, bytes32 token, uint256 amount) private pure {
-        if (taker.account != 0 && taker.account != sender) revert InvalidTaker(taker.account, sender);
-        if (taker.token != token) revert InvalidTakerToken(taker.token, token);
-        if (taker.amount != amount) revert InvalidTakerAmount(taker.amount, amount);
     }
 }
