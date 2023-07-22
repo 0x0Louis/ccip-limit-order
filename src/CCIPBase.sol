@@ -17,6 +17,7 @@ abstract contract CCIPBase is Ownable2Step, CCIPReceiver {
 
     event TargetContractSet(uint64 indexed chainSelector, bytes32 indexed targetContract);
     event TrustedTokenSet(address indexed token, bool trusted);
+    event MessageSent(bytes32 indexed messageId);
 
     constructor(address router) CCIPReceiver(router) {}
 
