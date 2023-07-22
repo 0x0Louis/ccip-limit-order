@@ -20,27 +20,25 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
     error SameMakerFee(uint48 makerFee);
     error SameFeeRecipient(address feeRecipient);
     error UnsupportedChain(uint64 chainSelector);
-    error OrderAlreadyPending(uint64 chainSelector, uint256 orderId);
     error InvalidSender(bytes32 expectedSender, bytes32 actualSender);
     error InvalidTaker(bytes32 expectedTaker, bytes32 actualTaker);
-    error InvalidTakerToken(bytes32 expectedToken, bytes32 actualToken);
-    error InvalidTakerAmount(uint256 expectedAmount, uint256 actualAmount);
-    error PendingFillNotExpired();
-    error NoPendingFill(address account, uint64 chainSelector, uint256 orderId);
+    error NativeTransferFailed();
+    error FeeTooHigh(uint256 fee, uint256 maxFee);
+    error InsufficientNative(uint256 value, uint256 fee);
+    error InvalidFeeToken(address feeToken);
 
     event OrderCreated(uint256 indexed orderId, Party maker, Party taker);
     event OrderFilled(uint256 indexed orderId);
     event OrderCancelled(uint256 indexed orderId);
-    event PendingFillCancelled(uint64 indexed chainSelector, uint256 orderId);
     event TakerFeeSet(uint48 takerFee);
     event MakerFeeSet(uint48 makerFee);
     event FeeRecipientSet(address feeRecipient);
     event CCIPActionReceived(CCIPAction action, uint256 indexed orderId);
+    event TokensSent(uint64 indexed chainSelector, bytes32 indexed account, Client.EVMTokenAmount[] tokenAmounts);
 
     enum CCIPAction {
-        Check,
-        Make,
-        Take
+        SendToken,
+        FillOrder
     }
 
     enum State {
@@ -53,7 +51,7 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
 
     struct Party {
         bytes32 account;
-        bytes32 token;
+        address token;
         uint256 amount;
     }
 
@@ -63,17 +61,12 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
         Party taker;
     }
 
-    struct PendingFill {
-        bytes32 token;
-        uint256 amount;
-        uint256 timestamp;
-    }
-
     uint256 public constant BASIS_POINTS = 10000;
     uint256 public constant MAX_FEE = BASIS_POINTS / 20; // 5%
     uint256 public constant MIN_PENDING_FILL_DURATION = 1 days;
 
     uint64 public immutable currentChainSelector;
+    address public immutable link;
 
     uint256 private _orderCount;
 
@@ -82,12 +75,18 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
     address private _feeRecipient;
 
     mapping(uint256 => Order) private _orders;
-    mapping(bytes32 => mapping(uint64 => mapping(uint256 => PendingFill))) private _pendingFills;
+    mapping(bytes32 => mapping(address => uint256)) private _balances;
 
-    constructor(address router, uint64 chainSelector, uint48 takerFee, uint48 makerFee, address feeRecipient)
-        CCIPBase(router)
-    {
+    constructor(
+        address router,
+        uint64 chainSelector,
+        address linkToken,
+        uint48 takerFee,
+        uint48 makerFee,
+        address feeRecipient
+    ) CCIPBase(router) {
         currentChainSelector = chainSelector;
+        link = linkToken;
 
         if (takerFee != 0) _setTakerFee(takerFee);
         if (makerFee != 0) _setMakerFee(makerFee);
@@ -111,12 +110,8 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
         return _feeRecipient;
     }
 
-    function getPendingFill(bytes32 account, uint64 chainSelector, uint256 orderId)
-        external
-        view
-        returns (PendingFill memory)
-    {
-        return _pendingFills[account][chainSelector][orderId];
+    function getBalance(bytes32 account, address token) external view returns (uint256 balance) {
+        return _balances[account][token];
     }
 
     function createOrder(Party calldata maker, Party calldata taker) external returns (uint256 orderId) {
@@ -128,12 +123,20 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
 
         _orders[orderId] = Order({state: State.Created, maker: maker, taker: taker});
 
-        IERC20(maker.token.toAddress()).safeTransferFrom(msg.sender, address(this), maker.amount);
+        IERC20(maker.token).safeTransferFrom(msg.sender, address(this), maker.amount);
 
         emit OrderCreated(orderId, maker, taker);
     }
 
-    function fillOrder(uint64 chainSelector, uint256 orderId, bytes32 token, uint256 amount) external returns (bool) {
+    function fillOrder(
+        uint64 chainSelector,
+        uint256 orderId,
+        address token,
+        uint256 amount,
+        address feeToken,
+        uint256 maxFee,
+        uint256 gasLimit
+    ) external payable returns (bool) {
         if (chainSelector == currentChainSelector) {
             _fillOrder(orderId);
             return true;
@@ -144,22 +147,19 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
         bytes32 targetContract = _getTargetContract(chainSelector);
         if (targetContract == 0) revert UnsupportedChain(chainSelector);
 
-        if (_pendingFills[msg.sender.toBytes32()][chainSelector][orderId].timestamp != 0) {
-            revert OrderAlreadyPending(chainSelector, orderId);
-        }
+        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
 
-        _pendingFills[msg.sender.toBytes32()][chainSelector][orderId] =
-            PendingFill({token: token, amount: amount, timestamp: block.timestamp});
-
-        IERC20(token.toAddress()).safeTransferFrom(msg.sender, address(this), amount);
+        Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](1);
+        tokenAmounts[0] = Client.EVMTokenAmount({token: token, amount: amount});
 
         _ccipSend(
             chainSelector,
             targetContract,
-            abi.encode(CCIPAction.Check, msg.sender, token, amount, orderId),
-            new Client.EVMTokenAmount[](0),
-            type(uint256).max, // todo add a maxFee
-            200_000 // todo add a gasLimit
+            abi.encode(CCIPAction.FillOrder, msg.sender.toBytes32(), orderId),
+            tokenAmounts,
+            feeToken,
+            maxFee,
+            gasLimit
         );
 
         return true;
@@ -175,24 +175,46 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
 
         order.state = State.Cancelled;
 
-        IERC20(order.maker.token.toAddress()).safeTransfer(order.maker.account.toAddress(), order.maker.amount);
+        IERC20(order.maker.token).safeTransfer(order.maker.account.toAddress(), order.maker.amount);
 
         emit OrderCancelled(orderId);
 
         return true;
     }
 
-    function cancelPendingFill(uint64 chainSelector, uint256 orderId) external returns (bool) {
-        PendingFill memory pendingFill = _pendingFills[msg.sender.toBytes32()][chainSelector][orderId];
+    function sendTokens(
+        uint64 chainSelector,
+        bytes32 account,
+        Client.EVMTokenAmount[] calldata tokenAmounts,
+        address feeToken,
+        uint256 maxFee,
+        uint256 gasLimit
+    ) external returns (bool) {
+        for (uint256 i = 0; i < tokenAmounts.length; i++) {
+            _balances[account][tokenAmounts[i].token] -= tokenAmounts[i].amount;
+        }
 
-        if (pendingFill.timestamp == 0) revert NoPendingFill(msg.sender, chainSelector, orderId);
-        if (pendingFill.timestamp + MIN_PENDING_FILL_DURATION > block.timestamp) revert PendingFillNotExpired();
+        if (chainSelector == currentChainSelector) {
+            for (uint256 i = 0; i < tokenAmounts.length; i++) {
+                IERC20(tokenAmounts[i].token).safeTransfer(account.toAddress(), tokenAmounts[i].amount);
+            }
+            return true;
+        }
 
-        delete _pendingFills[msg.sender.toBytes32()][chainSelector][orderId];
+        bytes32 targetContract = _getTargetContract(chainSelector);
+        if (targetContract == 0) revert UnsupportedChain(chainSelector);
 
-        IERC20(pendingFill.token.toAddress()).safeTransfer(msg.sender, pendingFill.amount);
+        _ccipSend(
+            chainSelector,
+            targetContract,
+            abi.encode(CCIPAction.SendToken, account, 0),
+            tokenAmounts,
+            feeToken,
+            maxFee,
+            gasLimit
+        );
 
-        emit PendingFillCancelled(chainSelector, orderId);
+        emit TokensSent(chainSelector, account, tokenAmounts);
 
         return true;
     }
@@ -212,7 +234,7 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
     receive() external payable {}
 
     function call(address target, uint256 value, bytes calldata data) external onlyOwner {
-        // todo remove this
+        // todo remove this when testing is done
         (bool success,) = target.call{value: value}(data);
         require(success, "call failed");
     }
@@ -225,14 +247,17 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
         if (expectedSender != actualSender) revert InvalidSender(expectedSender, actualSender);
     }
 
-    function _verifyToken(bytes32 token) private view {
-        if (!_isTrustedToken(token.toAddress())) revert UntrustedToken(token.toAddress());
+    function _verifyToken(address token) private view {
+        if (!_isTrustedToken(token)) revert UntrustedToken(token);
     }
 
-    function _verifyTaker(Party memory taker, bytes32 sender, bytes32 token, uint256 amount) private pure {
-        if (taker.account != 0 && taker.account != sender) revert InvalidTaker(taker.account, sender);
-        if (taker.token != token) revert InvalidTakerToken(taker.token, token);
-        if (taker.amount != amount) revert InvalidTakerAmount(taker.amount, amount);
+    function _isOrderFillable(State state, Party memory taker, bytes32 sender, address token, uint256 amount)
+        private
+        pure
+        returns (bool)
+    {
+        return state == State.Created && (taker.account == 0 || taker.account == sender) && taker.token == token
+            && taker.amount == amount;
     }
 
     function _setTakerFee(uint48 takerFee) private {
@@ -282,8 +307,8 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
         uint256 makerFee = (makerAmount * _makerFee) / BASIS_POINTS;
         uint256 takerFee = (takerAmount * _takerFee) / BASIS_POINTS;
 
-        IERC20 makerToken = IERC20(order.maker.token.toAddress());
-        IERC20 takerToken = IERC20(order.taker.token.toAddress());
+        IERC20 makerToken = IERC20(order.maker.token);
+        IERC20 takerToken = IERC20(order.taker.token);
 
         if (makerFee > 0) makerToken.safeTransfer(_feeRecipient, makerFee);
         if (takerFee > 0) takerToken.safeTransferFrom(msg.sender, _feeRecipient, takerFee);
@@ -297,85 +322,58 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
     function _ccipReceive(Client.Any2EVMMessage memory message) internal override {
         _verifySender(_getTargetContract(message.sourceChainSelector), message.sender.toBytes32());
 
-        (CCIPAction action, bytes32 sender, bytes32 token, uint256 amount, uint256 orderId) =
-            abi.decode(message.data, (CCIPAction, bytes32, bytes32, uint256, uint256));
+        (CCIPAction action, bytes32 account, uint256 orderId) = abi.decode(message.data, (CCIPAction, bytes32, uint256));
 
-        if (action == CCIPAction.Check) _checkOrder(message, sender, token, amount, orderId);
-        else if (action == CCIPAction.Make) _makeOrder(message, sender, token, amount, orderId);
-        else if (action == CCIPAction.Take) _takeOrder(orderId);
+        if (action == CCIPAction.FillOrder) {
+            _fillOrderMultiChain(message, account, orderId);
+        } else if (action == CCIPAction.SendToken) {
+            for (uint256 i = 0; i < message.destTokenAmounts.length; i++) {
+                IERC20(message.destTokenAmounts[i].token).safeTransfer(
+                    account.toAddress(), message.destTokenAmounts[i].amount
+                );
+            }
+        }
 
         emit CCIPActionReceived(action, orderId);
     }
 
-    function _checkOrder(
-        Client.Any2EVMMessage memory message,
-        bytes32 sender,
-        bytes32 token,
-        uint256 amount,
-        uint256 orderId
-    ) private {
+    function _fillOrderMultiChain(Client.Any2EVMMessage memory message, bytes32 sender, uint256 orderId) private {
         Order storage order = _orders[orderId];
 
-        _verifyState(State.Created, order.state);
-        _verifyTaker(order.taker, sender, token, amount);
+        address takerToken = message.destTokenAmounts[0].token;
+        uint256 takerAmount = message.destTokenAmounts[0].amount;
 
-        order.taker.account = sender;
-        order.state = State.Filling;
+        if (!_isOrderFillable(order.state, order.taker, sender, takerToken, takerAmount)) {
+            _storeToken(sender, takerToken, takerAmount);
+        } else {
+            order.state = State.Filled;
 
-        Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](1);
-        tokenAmounts[0] = Client.EVMTokenAmount({token: order.maker.token.toAddress(), amount: order.maker.amount});
+            _storeToken(sender, order.maker.token, order.maker.amount);
 
-        _ccipSend(
-            message.sourceChainSelector,
-            message.sender.toBytes32(),
-            abi.encode(CCIPAction.Make, sender, token, amount, orderId),
-            tokenAmounts,
-            type(uint256).max, // todo add a maxFee
-            200_000 // todo add a gasLimit
-        );
+            IERC20(takerToken).safeTransfer(order.maker.account.toAddress(), order.taker.amount);
+        }
     }
 
-    function _makeOrder(
-        Client.Any2EVMMessage memory message,
-        bytes32 sender,
-        bytes32 token,
-        uint256 amount,
-        uint256 orderId
-    ) private {
-        Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](1);
-        tokenAmounts[0] = Client.EVMTokenAmount({token: token.toAddress(), amount: amount});
-
-        delete _pendingFills[sender][message.sourceChainSelector][orderId];
-
-        IERC20 makerToken = IERC20(message.destTokenAmounts[0].token);
-        uint256 makerAmount = message.destTokenAmounts[0].amount;
-
-        uint256 makerFeeAmount = (makerAmount * _makerFee) / BASIS_POINTS;
-
-        _ccipSend(
-            message.sourceChainSelector,
-            message.sender.toBytes32(),
-            abi.encode(CCIPAction.Take, sender, token, amount, orderId),
-            tokenAmounts,
-            type(uint256).max, // todo add a maxFee
-            200_000 // todo add a gasLimit
-        );
-
-        if (makerFeeAmount > 0) makerToken.safeTransfer(_feeRecipient, makerFeeAmount);
-        makerToken.safeTransfer(sender.toAddress(), makerAmount - makerFeeAmount);
+    function _storeToken(bytes32 account, address token, uint256 amount) private {
+        _balances[account][token] += amount;
     }
 
-    function _takeOrder(uint256 orderId) private {
-        Order storage order = _orders[orderId];
+    function _handleFee(address feeToken, uint256 maxFee, uint256 fee) internal override {
+        if (fee > maxFee) revert FeeTooHigh(fee, maxFee);
 
-        order.state = State.Filled;
+        if (feeToken == address(0)) {
+            if (msg.value < fee) revert InsufficientNative(msg.value, fee);
 
-        IERC20 takerToken = IERC20(order.taker.token.toAddress());
+            if (msg.value > fee) _transferNative(msg.sender, msg.value - fee);
+        } else {
+            if (feeToken != link) revert InvalidFeeToken(feeToken);
 
-        uint256 takerAmount = order.taker.amount;
-        uint256 takerFeeAmount = (takerAmount * _takerFee) / BASIS_POINTS;
+            IERC20(feeToken).safeTransferFrom(msg.sender, address(this), fee);
+        }
+    }
 
-        if (takerFeeAmount > 0) takerToken.safeTransfer(_feeRecipient, takerFeeAmount);
-        takerToken.safeTransfer(order.maker.account.toAddress(), takerAmount - takerFeeAmount);
+    function _transferNative(address to, uint256 amount) internal {
+        (bool success,) = to.call{value: amount}("");
+        if (!success) revert NativeTransferFailed();
     }
 }
