@@ -294,7 +294,7 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
 
         if (action == CCIPAction.Check) _checkOrder(message, sender, token, amount, orderId);
         else if (action == CCIPAction.Make) _makeOrder(message, sender, token, amount, orderId);
-        else if (action == CCIPAction.Take) _takeOrder(message, sender, token, amount, orderId);
+        else if (action == CCIPAction.Take) _takeOrder(orderId);
 
         emit CCIPActionReceived(action, orderId);
     }
@@ -357,7 +357,7 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
         makerToken.safeTransfer(sender.toAddress(), makerAmount - makerFeeAmount);
     }
 
-    function _takeOrder(Client.Any2EVMMessage memory, bytes32, bytes32, uint256, uint256 orderId) private {
+    function _takeOrder(uint256 orderId) private {
         Order storage order = _orders[orderId];
 
         order.state = State.Filled;
