@@ -12,8 +12,6 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
     using Bytes for bytes32;
     using Bytes for address;
 
-    error InvalidMaker(bytes32 sender, bytes32 maker);
-    error InvalidTaker(bytes32 sender, bytes32 taker);
     error InvalidState(State expected, State actual);
     error InvalidTakerFee(uint48 takerFee);
     error InvalidMakerFee(uint48 makerFee);
@@ -23,9 +21,10 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
     error SameFeeRecipient(address feeRecipient);
     error UnsupportedChain(uint64 chainSelector);
     error OrderAlreadyPending(uint64 chainSelector, uint256 orderId);
-    error InvalidSender(bytes32 sender);
-    error InvalidTakerToken(bytes32 token, bytes32 takerToken);
-    error InvalidTakerAmount(uint256 amount, uint256 takerAmount);
+    error InvalidSender(bytes32 expectedSender, bytes32 actualSender);
+    error InvalidTaker(bytes32 expectedTaker, bytes32 actualTaker);
+    error InvalidTakerToken(bytes32 expectedToken, bytes32 actualToken);
+    error InvalidTakerAmount(uint256 expectedAmount, uint256 actualAmount);
     error PendingFillNotExpired();
     error NoPendingFill(address account, uint64 chainSelector, uint256 orderId);
 
@@ -123,10 +122,9 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
     function createOrder(Party calldata maker, Party calldata taker) external returns (uint256 orderId) {
         orderId = _orderCount++;
 
-        if (maker.account != msg.sender.toBytes32()) revert InvalidMaker(msg.sender.toBytes32(), maker.account);
-        if (!_isTrustedToken(maker.token.toAddress()) || !_isTrustedToken(taker.token.toAddress())) {
-            revert UntrustedToken(maker.token.toAddress());
-        }
+        _verifySender(maker.account, msg.sender.toBytes32());
+        _verifyToken(maker.token);
+        _verifyToken(taker.token);
 
         _orders[orderId] = Order({state: State.Created, maker: maker, taker: taker});
 
@@ -141,7 +139,8 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
             return true;
         }
 
-        if (!_isTrustedToken(token.toAddress())) revert UntrustedToken(token.toAddress());
+        _verifyToken(token);
+
         bytes32 targetContract = _getTargetContract(chainSelector);
         if (targetContract == 0) revert UnsupportedChain(chainSelector);
 
@@ -171,8 +170,8 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
 
         State state = order.state;
 
-        if (state != State.Created) revert InvalidState(State.Created, state);
-        if (order.maker.account != msg.sender.toBytes32()) revert InvalidSender(msg.sender.toBytes32());
+        _verifyState(State.Created, state);
+        _verifySender(order.maker.account, msg.sender.toBytes32());
 
         order.state = State.Cancelled;
 
@@ -242,12 +241,12 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
 
         State state = order.state;
 
-        if (state != State.Created) revert InvalidState(State.Created, state);
+        _verifyState(State.Created, state);
 
         bytes32 takerAccount = order.taker.account;
 
         if (takerAccount == 0) order.taker.account = msg.sender.toBytes32();
-        else if (takerAccount != msg.sender.toBytes32()) revert InvalidTaker(msg.sender.toBytes32(), takerAccount);
+        else if (takerAccount != msg.sender.toBytes32()) revert InvalidTaker(takerAccount, msg.sender.toBytes32());
 
         order.state = State.Filled;
 
@@ -270,9 +269,7 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
     }
 
     function _ccipReceive(Client.Any2EVMMessage memory message) internal override {
-        if (_getTargetContract(message.sourceChainSelector) != Bytes.toBytes32(message.sender)) {
-            revert InvalidSender(message.sender.toBytes32());
-        }
+        _verifySender(_getTargetContract(message.sourceChainSelector), message.sender.toBytes32());
 
         (CCIPAction action, bytes32 sender, bytes32 token, uint256 amount, uint256 orderId) =
             abi.decode(message.data, (CCIPAction, bytes32, bytes32, uint256, uint256));
@@ -293,10 +290,8 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
     ) private {
         Order storage order = _orders[orderId];
 
-        if (order.state != State.Created) revert InvalidState(State.Created, order.state);
-        if (order.taker.account != 0 && order.taker.account != sender) revert InvalidTaker(sender, order.taker.account);
-        if (order.taker.token != token) revert InvalidTakerToken(token, order.taker.token);
-        if (order.taker.amount != amount) revert InvalidTakerAmount(amount, order.taker.amount);
+        _verifyState(State.Created, order.state);
+        _verifyTaker(order.taker, sender, token, amount);
 
         order.taker.account = sender;
         order.state = State.Filling;
@@ -356,5 +351,23 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
 
         if (takerFeeAmount > 0) takerToken.safeTransfer(_feeRecipient, takerFeeAmount);
         takerToken.safeTransfer(order.maker.account.toAddress(), takerAmount - takerFeeAmount);
+    }
+
+    function _verifyState(State expected, State actual) private pure {
+        if (expected != actual) revert InvalidState(expected, actual);
+    }
+
+    function _verifySender(bytes32 expectedSender, bytes32 actualSender) private pure {
+        if (expectedSender != actualSender) revert InvalidSender(expectedSender, actualSender);
+    }
+
+    function _verifyToken(bytes32 token) private view {
+        if (!_isTrustedToken(token.toAddress())) revert UntrustedToken(token.toAddress());
+    }
+
+    function _verifyTaker(Party memory taker, bytes32 sender, bytes32 token, uint256 amount) private pure {
+        if (taker.account != 0 && taker.account != sender) revert InvalidTaker(taker.account, sender);
+        if (taker.token != token) revert InvalidTakerToken(taker.token, token);
+        if (taker.amount != amount) revert InvalidTakerAmount(taker.amount, amount);
     }
 }

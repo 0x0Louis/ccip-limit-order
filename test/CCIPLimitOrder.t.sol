@@ -166,7 +166,11 @@ contract CCIPLimitOrderTest is Test {
         ccipLimitOrderB.fillOrder(CHAIN_SELECTOR_A, orderId, address(tokenB).toBytes32(), 10e18);
         vm.stopPrank();
 
-        vm.expectRevert(abi.encodeWithSelector(CCIPLimitOrder.InvalidSender.selector, Bytes.toBytes32(address(this))));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CCIPLimitOrder.InvalidSender.selector, Bytes.toBytes32(alice), Bytes.toBytes32(address(this))
+            )
+        );
         ccipLimitOrderA.cancelOrder(orderId);
 
         vm.prank(alice);
@@ -204,7 +208,7 @@ contract CCIPLimitOrderTest is Test {
         maker.account = bob.toBytes32();
 
         vm.expectRevert(
-            abi.encodeWithSelector(CCIPLimitOrder.InvalidMaker.selector, Bytes.toBytes32(alice), Bytes.toBytes32(bob))
+            abi.encodeWithSelector(CCIPLimitOrder.InvalidSender.selector, Bytes.toBytes32(bob), Bytes.toBytes32(alice))
         );
         ccipLimitOrderA.createOrder(maker, taker);
 
@@ -253,7 +257,7 @@ contract CCIPLimitOrderTest is Test {
         tokenB.approve(address(ccipLimitOrderB), 10e18);
 
         vm.expectRevert(
-            abi.encodeWithSelector(CCIPLimitOrder.InvalidTaker.selector, Bytes.toBytes32(bob), Bytes.toBytes32(charlie))
+            abi.encodeWithSelector(CCIPLimitOrder.InvalidTaker.selector, Bytes.toBytes32(charlie), Bytes.toBytes32(bob))
         );
         ccipLimitOrderA.fillOrder(CHAIN_SELECTOR_A, orderId, address(tokenB).toBytes32(), 10e18);
 
@@ -261,7 +265,7 @@ contract CCIPLimitOrderTest is Test {
         vm.stopPrank();
 
         vm.expectRevert(
-            abi.encodeWithSelector(CCIPLimitOrder.InvalidTaker.selector, Bytes.toBytes32(bob), Bytes.toBytes32(charlie))
+            abi.encodeWithSelector(CCIPLimitOrder.InvalidTaker.selector, Bytes.toBytes32(charlie), Bytes.toBytes32(bob))
         );
         forwarderRouterA.routeMessage();
 
