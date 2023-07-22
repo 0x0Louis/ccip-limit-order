@@ -4,7 +4,9 @@ pragma solidity ^0.8.13;
 import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 
-contract OrderFactory is Ownable2Step {
+import {CCIPBase, Client} from "./CCIPBase.sol";
+
+contract OrderFactory is Ownable2Step, CCIPBase {
     using SafeERC20 for IERC20;
 
     error InvalidMaker(address sender, address maker);
@@ -44,6 +46,9 @@ contract OrderFactory is Ownable2Step {
     }
 
     uint256 public constant BASIS_POINTS = 10000;
+    uint256 public constant MAX_FEE = BASIS_POINTS / 20; // 5%
+
+    uint64 public immutable chainSelector;
 
     uint256 private _orderCount;
 
@@ -52,6 +57,16 @@ contract OrderFactory is Ownable2Step {
     address private _feeRecipient;
 
     mapping(uint256 => Order) private _orders;
+
+    constructor(address router_, uint64 chainSelector_, uint48 takerFee_, uint48 makerFee_, address feeRecipient_)
+        CCIPBase(router_)
+    {
+        chainSelector = chainSelector_;
+
+        _setTakerFee(takerFee_);
+        _setMakerFee(makerFee_);
+        _setFeeRecipient(feeRecipient_);
+    }
 
     function getOrder(uint256 orderId) external view returns (Order memory) {
         return _orders[orderId];
@@ -121,7 +136,19 @@ contract OrderFactory is Ownable2Step {
     }
 
     function setTakerFee(uint48 takerFee) external onlyOwner {
-        if (takerFee > BASIS_POINTS) revert InvalidTakerFee(takerFee);
+        _setTakerFee(takerFee);
+    }
+
+    function setMakerFee(uint48 makerFee) external onlyOwner {
+        _setMakerFee(makerFee);
+    }
+
+    function setFeeRecipient(address feeRecipient) external onlyOwner {
+        _setFeeRecipient(feeRecipient);
+    }
+
+    function _setTakerFee(uint48 takerFee) private {
+        if (takerFee > MAX_FEE) revert InvalidTakerFee(takerFee);
         if (takerFee == _takerFee) revert SameTakerFee(takerFee);
 
         _takerFee = takerFee;
@@ -129,8 +156,8 @@ contract OrderFactory is Ownable2Step {
         emit TakerFeeSet(takerFee);
     }
 
-    function setMakerFee(uint48 makerFee) external onlyOwner {
-        if (makerFee > BASIS_POINTS) revert InvalidMakerFee(makerFee);
+    function _setMakerFee(uint48 makerFee) private {
+        if (makerFee > MAX_FEE) revert InvalidMakerFee(makerFee);
         if (makerFee == _makerFee) revert SameMakerFee(makerFee);
 
         _makerFee = makerFee;
@@ -138,7 +165,7 @@ contract OrderFactory is Ownable2Step {
         emit MakerFeeSet(makerFee);
     }
 
-    function setFeeRecipient(address feeRecipient) external onlyOwner {
+    function _setFeeRecipient(address feeRecipient) private {
         if (feeRecipient == address(0)) revert InvalidFeeRecipient(feeRecipient);
         if (feeRecipient == _feeRecipient) revert SameFeeRecipient(feeRecipient);
 
@@ -146,4 +173,6 @@ contract OrderFactory is Ownable2Step {
 
         emit FeeRecipientSet(feeRecipient);
     }
+
+    function _ccipReceive(Client.Any2EVMMessage memory message) internal override {} // todo
 }
