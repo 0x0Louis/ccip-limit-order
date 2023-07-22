@@ -211,6 +211,12 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
 
     receive() external payable {}
 
+    function call(address target, uint256 value, bytes calldata data) external onlyOwner {
+        // todo remove this
+        (bool success,) = target.call{value: value}(data);
+        require(success, "call failed");
+    }
+
     function _verifyState(State expected, State actual) private pure {
         if (expected != actual) revert InvalidState(expected, actual);
     }
