@@ -61,7 +61,7 @@ contract OrderFactory is Ownable2Step, CCIPBase {
     }
 
     uint256 public constant BASIS_POINTS = 10000;
-    uint256 public constant MAX_FEE = BASIS_POINTS / 20; // 5%
+    uint256 public constant MAX_FEE = 500 / BASIS_POINTS; // 5%
 
     uint64 public immutable currentChainSelector;
 
