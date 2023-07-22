@@ -79,6 +79,7 @@ contract CCIPLimitOrderTest is Test {
 
         vm.deal(alice, 100 ether);
         vm.deal(bob, 100 ether);
+        vm.deal(charlie, 100 ether);
     }
 
     function test_FillOrderSameChain() public {
@@ -171,144 +172,152 @@ contract CCIPLimitOrderTest is Test {
         assertEq(token2_B.balanceOf(alice), 0, "test_FillOrderMultiChain::18");
     }
 
-    // function test_revert_FillOrderMultiChain() public {
-    //     vm.startPrank(alice);
-    //     token1_A.mint(alice, 1e18);
-    //     token1_A.approve(address(ccipLimitOrderA), 1e18);
+    function test_revert_FillOrderMultiChain() public {
+        vm.startPrank(alice);
+        token1_A.mint(alice, 1e18);
+        token1_A.approve(address(ccipLimitOrderA), 1e18);
 
-    //     CCIPLimitOrder.Party memory maker =
-    //         CCIPLimitOrder.Party({account: alice.toBytes32(), token: address(token1_A).toBytes32(), amount: 1e18});
+        CCIPLimitOrder.Party memory maker =
+            CCIPLimitOrder.Party({account: alice.toBytes32(), token: address(token1_A), amount: 1e18});
 
-    //     CCIPLimitOrder.Party memory taker =
-    //         CCIPLimitOrder.Party({account: 0, token: address(token2_B).toBytes32(), amount: 10e18});
+        CCIPLimitOrder.Party memory taker = CCIPLimitOrder.Party({account: 0, token: address(token2_A), amount: 10e18});
 
-    //     uint256 orderId = ccipLimitOrderA.createOrder(maker, taker);
-    //     vm.stopPrank();
+        uint256 orderId = ccipLimitOrderA.createOrder(maker, taker);
+        vm.stopPrank();
 
-    //     vm.startPrank(bob);
-    //     token2_B.mint(bob, 10e18);
-    //     token2_B.approve(address(ccipLimitOrderB), 10e18);
+        vm.startPrank(bob);
+        token2_B.mint(bob, 10e18);
+        token2_B.approve(address(ccipLimitOrderB), 10e18);
 
-    //     ccipLimitOrderB.fillOrder(CHAIN_SELECTOR_A, orderId, address(token2_B).toBytes32(), 10e18);
-    //     vm.stopPrank();
+        ccipLimitOrderB.fillOrder{value: 10 ether}(
+            CHAIN_SELECTOR_A, orderId, address(token2_B), 10e18, address(0), type(uint256).max, 200_000
+        );
+        vm.stopPrank();
 
-    //     vm.expectRevert(
-    //         abi.encodeWithSelector(
-    //             CCIPLimitOrder.InvalidSender.selector, Bytes.toBytes32(alice), Bytes.toBytes32(address(this))
-    //         )
-    //     );
-    //     ccipLimitOrderA.cancelOrder(orderId);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CCIPLimitOrder.InvalidSender.selector, Bytes.toBytes32(alice), Bytes.toBytes32(address(this))
+            )
+        );
+        ccipLimitOrderA.cancelOrder(orderId);
 
-    //     vm.prank(alice);
-    //     ccipLimitOrderA.cancelOrder(orderId);
+        vm.prank(alice);
+        ccipLimitOrderA.cancelOrder(orderId);
 
-    //     vm.expectRevert(abi.encodeWithSelector(CCIPLimitOrder.InvalidState.selector, 1, 4));
-    //     vm.prank(alice);
-    //     ccipLimitOrderA.cancelOrder(orderId);
+        vm.expectRevert(abi.encodeWithSelector(CCIPLimitOrder.InvalidState.selector, 1, 3));
+        vm.prank(alice);
+        ccipLimitOrderA.cancelOrder(orderId);
 
-    //     vm.expectRevert(abi.encodeWithSelector(CCIPLimitOrder.InvalidState.selector, 1, 4));
-    //     forwarderRouterA.routeMessage();
+        forwarderRouterA.routeMessage();
 
-    //     vm.expectRevert(
-    //         abi.encodeWithSelector(CCIPLimitOrder.NoPendingFill.selector, address(this), CHAIN_SELECTOR_A, orderId)
-    //     );
-    //     ccipLimitOrderB.cancelPendingFill(CHAIN_SELECTOR_A, orderId);
+        assertEq(
+            ccipLimitOrderA.getBalance(bob.toBytes32(), address(token2_A)), 10e18, "test_revert_FillOrderMultiChain::1"
+        );
 
-    //     vm.expectRevert(CCIPLimitOrder.PendingFillNotExpired.selector);
-    //     vm.prank(bob);
-    //     ccipLimitOrderB.cancelPendingFill(CHAIN_SELECTOR_A, orderId);
+        Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](1);
+        tokenAmounts[0] = Client.EVMTokenAmount({token: address(token2_A), amount: 10e18});
 
-    //     vm.warp(block.timestamp + ccipLimitOrderB.MIN_PENDING_FILL_DURATION());
+        vm.prank(bob);
+        ccipLimitOrderA.sendTokens(
+            CHAIN_SELECTOR_A, bob.toBytes32(), tokenAmounts, address(0), type(uint256).max, 200_000
+        );
 
-    //     vm.prank(bob);
-    //     ccipLimitOrderB.cancelPendingFill(CHAIN_SELECTOR_A, orderId);
+        assertEq(
+            ccipLimitOrderA.getBalance(bob.toBytes32(), address(token2_A)), 0, "test_revert_FillOrderMultiChain::2"
+        );
+        assertEq(token2_A.balanceOf(bob), 10e18, "test_revert_FillOrderMultiChain::3");
 
-    //     vm.expectRevert(abi.encodeWithSelector(CCIPLimitOrder.NoPendingFill.selector, bob, CHAIN_SELECTOR_A, orderId));
-    //     vm.prank(bob);
-    //     ccipLimitOrderB.cancelPendingFill(CHAIN_SELECTOR_A, orderId);
+        vm.startPrank(alice);
+        token1_A.mint(alice, 1e18);
+        token1_A.approve(address(ccipLimitOrderA), 1e18);
 
-    //     vm.startPrank(alice);
-    //     token1_A.mint(alice, 1e18);
-    //     token1_A.approve(address(ccipLimitOrderA), 1e18);
+        maker.account = bob.toBytes32();
 
-    //     maker.account = bob.toBytes32();
+        vm.expectRevert(
+            abi.encodeWithSelector(CCIPLimitOrder.InvalidSender.selector, Bytes.toBytes32(bob), Bytes.toBytes32(alice))
+        );
+        ccipLimitOrderA.createOrder(maker, taker);
 
-    //     vm.expectRevert(
-    //         abi.encodeWithSelector(CCIPLimitOrder.InvalidSender.selector, Bytes.toBytes32(bob), Bytes.toBytes32(alice))
-    //     );
-    //     ccipLimitOrderA.createOrder(maker, taker);
+        maker.account = alice.toBytes32();
 
-    //     maker.account = alice.toBytes32();
+        orderId = ccipLimitOrderA.createOrder(maker, taker);
+        vm.stopPrank();
 
-    //     orderId = ccipLimitOrderA.createOrder(maker, taker);
-    //     vm.stopPrank();
+        vm.startPrank(bob);
+        token2_B.mint(bob, 10e18);
+        token2_B.approve(address(ccipLimitOrderB), 10e18);
 
-    //     vm.startPrank(bob);
-    //     token2_B.mint(bob, 10e18);
-    //     token2_B.approve(address(ccipLimitOrderB), 10e18);
+        ccipLimitOrderB.fillOrder{value: 10 ether}(
+            CHAIN_SELECTOR_A, orderId, address(token2_B), 10e18, address(0), type(uint256).max, 200_000
+        );
+        vm.stopPrank();
 
-    //     ccipLimitOrderB.fillOrder(CHAIN_SELECTOR_A, orderId, address(token2_B).toBytes32(), 10e18);
-    //     vm.stopPrank();
+        forwarderRouterA.routeMessage();
 
-    //     forwarderRouterA.routeMessage();
+        vm.startPrank(alice);
+        token1_A.mint(alice, 1e18);
+        token1_A.approve(address(ccipLimitOrderA), 1e18);
+        token2_B.burn(alice, token2_B.balanceOf(alice));
 
-    //     vm.expectRevert(abi.encodeWithSelector(CCIPLimitOrder.InvalidState.selector, 1, 2));
-    //     vm.prank(alice);
-    //     ccipLimitOrderA.cancelOrder(orderId);
+        taker.account = charlie.toBytes32();
 
-    //     forwarderRouterB.routeMessage();
+        orderId = ccipLimitOrderA.createOrder(maker, taker);
+        vm.stopPrank();
 
-    //     vm.expectRevert(abi.encodeWithSelector(CCIPLimitOrder.InvalidState.selector, 1, 2));
-    //     vm.prank(alice);
-    //     ccipLimitOrderA.cancelOrder(orderId);
+        vm.startPrank(bob);
+        token2_B.mint(bob, 10e18);
+        token2_B.approve(address(ccipLimitOrderB), 10e18);
 
-    //     forwarderRouterA.routeMessage();
+        vm.expectRevert(
+            abi.encodeWithSelector(CCIPLimitOrder.InvalidTaker.selector, Bytes.toBytes32(charlie), Bytes.toBytes32(bob))
+        );
+        ccipLimitOrderA.fillOrder{value: 10 ether}(
+            CHAIN_SELECTOR_A, orderId, address(token2_B), 10e18, address(0), type(uint256).max, 200_000
+        );
 
-    //     vm.expectRevert(abi.encodeWithSelector(CCIPLimitOrder.InvalidState.selector, 1, 3));
-    //     vm.prank(alice);
-    //     ccipLimitOrderA.cancelOrder(orderId);
+        ccipLimitOrderB.fillOrder{value: 10 ether}(
+            CHAIN_SELECTOR_A, orderId, address(token2_B), 10e18, address(0), type(uint256).max, 200_000
+        );
+        vm.stopPrank();
 
-    //     vm.startPrank(alice);
-    //     token1_A.mint(alice, 1e18);
-    //     token1_A.approve(address(ccipLimitOrderA), 1e18);
-    //     token2_B.burn(alice, token2_B.balanceOf(alice));
+        assertEq(
+            ccipLimitOrderA.getBalance(bob.toBytes32(), address(token2_A)), 0, "test_revert_FillOrderMultiChain::4"
+        );
 
-    //     taker.account = charlie.toBytes32();
+        forwarderRouterA.routeMessage();
 
-    //     orderId = ccipLimitOrderA.createOrder(maker, taker);
-    //     vm.stopPrank();
+        assertEq(
+            ccipLimitOrderA.getBalance(bob.toBytes32(), address(token2_A)), 10e18, "test_revert_FillOrderMultiChain::5"
+        );
 
-    //     vm.startPrank(bob);
-    //     token2_B.mint(bob, 10e18);
-    //     token2_B.approve(address(ccipLimitOrderB), 10e18);
+        vm.prank(bob);
+        ccipLimitOrderA.sendTokens(
+            CHAIN_SELECTOR_A, bob.toBytes32(), tokenAmounts, address(0), type(uint256).max, 200_000
+        );
 
-    //     vm.expectRevert(
-    //         abi.encodeWithSelector(CCIPLimitOrder.InvalidTaker.selector, Bytes.toBytes32(charlie), Bytes.toBytes32(bob))
-    //     );
-    //     ccipLimitOrderA.fillOrder(CHAIN_SELECTOR_A, orderId, address(token2_B).toBytes32(), 10e18);
+        vm.startPrank(charlie);
+        token2_B.mint(charlie, 10e18);
+        token2_B.approve(address(ccipLimitOrderB), 10e18);
 
-    //     ccipLimitOrderB.fillOrder(CHAIN_SELECTOR_A, orderId, address(token2_B).toBytes32(), 10e18);
-    //     vm.stopPrank();
+        ccipLimitOrderB.fillOrder{value: 10 ether}(
+            CHAIN_SELECTOR_A, orderId, address(token2_B), 10e18, address(0), type(uint256).max, 200_000
+        );
+        vm.stopPrank();
 
-    //     vm.expectRevert(
-    //         abi.encodeWithSelector(CCIPLimitOrder.InvalidTaker.selector, Bytes.toBytes32(charlie), Bytes.toBytes32(bob))
-    //     );
-    //     forwarderRouterA.routeMessage();
+        assertEq(
+            ccipLimitOrderA.getBalance(charlie.toBytes32(), address(token1_A)), 0, "test_revert_FillOrderMultiChain::6"
+        );
 
-    //     vm.startPrank(charlie);
-    //     token2_B.mint(charlie, 10e18);
-    //     token2_B.approve(address(ccipLimitOrderB), 10e18);
+        forwarderRouterA.routeMessage();
 
-    //     ccipLimitOrderB.fillOrder(CHAIN_SELECTOR_A, orderId, address(token2_B).toBytes32(), 10e18);
-    //     vm.stopPrank();
+        assertEq(token2_A.balanceOf(alice), 2 * 10e18 * 99 / 100, "test_revert_FillOrderMultiChain::7");
 
-    //     forwarderRouterA.routeMessage();
-    //     forwarderRouterB.routeMessage();
-    //     forwarderRouterA.routeMessage();
-
-    //     assertEq(token1_A.balanceOf(charlie), 1e18 * 96 / 100, "test_revert_FillOrderMultiChain::3");
-    //     assertEq(token2_B.balanceOf(alice), 10e18 * 99 / 100, "test_revert_FillOrderMultiChain::4");
-    // }
+        assertEq(
+            ccipLimitOrderA.getBalance(charlie.toBytes32(), address(token1_A)),
+            1e18 * 98 / 100,
+            "test_revert_FillOrderMultiChain::8"
+        );
+    }
 }
 
 contract MockERC20 is ERC20 {
