@@ -209,6 +209,8 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
         _setFeeRecipient(feeRecipient);
     }
 
+    receive() external payable {}
+
     function _verifyState(State expected, State actual) private pure {
         if (expected != actual) revert InvalidState(expected, actual);
     }
