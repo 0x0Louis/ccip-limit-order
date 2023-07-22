@@ -64,6 +64,36 @@ contract CCIPLimitOrderTest is Test {
         vm.label(address(forwarderRouterB), "forwarderRouterB");
     }
 
+    function test_FillOrderSameChain() public {
+        vm.startPrank(alice);
+        tokenA.mint(alice, 1e18);
+        tokenA.approve(address(ccipLimitOrderA), 1e18);
+
+        CCIPLimitOrder.Party memory maker =
+            CCIPLimitOrder.Party({account: alice.toBytes32(), token: address(tokenA).toBytes32(), amount: 1e18});
+
+        CCIPLimitOrder.Party memory taker =
+            CCIPLimitOrder.Party({account: 0, token: address(tokenB).toBytes32(), amount: 10e18});
+
+        uint256 orderId = ccipLimitOrderA.createOrder(maker, taker);
+        vm.stopPrank();
+
+        assertEq(tokenA.balanceOf(address(ccipLimitOrderA)), 1e18, "test_FillOrderSameChain::1");
+        assertEq(tokenB.balanceOf(address(ccipLimitOrderB)), 0, "test_FillOrderSameChain::2");
+
+        vm.startPrank(bob);
+        tokenB.mint(bob, 10e18);
+        tokenB.approve(address(ccipLimitOrderA), 10e18);
+
+        ccipLimitOrderA.fillOrder(CHAIN_SELECTOR_A, orderId, address(tokenB).toBytes32(), 10e18);
+        vm.stopPrank();
+
+        assertEq(tokenA.balanceOf(address(ccipLimitOrderA)), 0, "test_FillOrderSameChain::3");
+        assertEq(tokenB.balanceOf(address(ccipLimitOrderB)), 0, "test_FillOrderSameChain::4");
+        assertEq(tokenA.balanceOf(bob), 1e18, "test_FillOrderSameChain::5");
+        assertEq(tokenB.balanceOf(alice), 10e18, "test_FillOrderSameChain::6");
+    }
+
     function test_FillOrderMultiChain() public {
         vm.startPrank(alice);
         tokenA.mint(alice, 1e18);
