@@ -9,8 +9,11 @@ import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeE
 import {Bytes} from "./library/Bytes.sol";
 
 abstract contract CCIPBase is Ownable2Step, CCIPReceiver {
+    using SafeERC20 for IERC20;
+
     error SameTargetContract(bytes32 targetContract);
     error SameTrustedTokenStatus(bool status);
+    error UntrustedToken(address token);
 
     mapping(uint64 => bytes32) private _targetContracts;
     mapping(address => bool) private _trustedTokens;
@@ -71,6 +74,8 @@ abstract contract CCIPBase is Ownable2Step, CCIPReceiver {
             feeToken: feeToken
         });
 
+        _transferTokens(tokenAmounts, msg.sender);
+
         uint256 fee = IRouterClient(getRouter()).getFee(destChainSelector, message);
 
         _handleFee(feeToken, maxFee, fee);
@@ -81,6 +86,16 @@ abstract contract CCIPBase is Ownable2Step, CCIPReceiver {
             IRouterClient(getRouter()).ccipSend{value: isFeeNative ? fee : 0}(destChainSelector, message);
 
         emit MessageSent(messageId);
+    }
+
+    function _transferTokens(Client.EVMTokenAmount[] memory tokenAmounts, address from) internal {
+        for (uint256 i; i < tokenAmounts.length; ++i) {
+            address token = tokenAmounts[i].token;
+
+            if (!_trustedTokens[token]) revert UntrustedToken(token);
+
+            IERC20(token).safeTransferFrom(from, address(this), tokenAmounts[i].amount);
+        }
     }
 
     function _handleFee(address feeToken, uint256 maxFee, uint256 fee) internal view virtual {}
