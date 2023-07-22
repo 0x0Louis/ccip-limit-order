@@ -18,9 +18,6 @@ abstract contract CCIPBase is Ownable2Step, CCIPReceiver {
     event TargetContractSet(uint64 indexed chainSelector, bytes32 indexed targetContract);
     event TrustedTokenSet(address indexed token, bool trusted);
     event MessageSent(bytes32 indexed messageId);
-    event FeeTokenSet(address feeToken);
-
-    address private _feeToken;
 
     mapping(uint64 => bytes32) private _targetContracts;
     mapping(address => bool) private _trustedTokens;
@@ -33,10 +30,6 @@ abstract contract CCIPBase is Ownable2Step, CCIPReceiver {
 
     function isTrustedToken(address token) external view returns (bool trusted) {
         return _isTrustedToken(token);
-    }
-
-    function getFeeToken() external view returns (address feeToken) {
-        return _feeToken;
     }
 
     function setTargetContract(uint64 chainSelector, bytes32 targetContract) external onlyOwner {
@@ -56,12 +49,6 @@ abstract contract CCIPBase is Ownable2Step, CCIPReceiver {
         emit TrustedTokenSet(token, trusted);
     }
 
-    function setFeeToken(address feeToken) external onlyOwner {
-        _feeToken = feeToken;
-
-        emit FeeTokenSet(feeToken);
-    }
-
     function _getTargetContract(uint64 chainSelector) internal view returns (bytes32 targetContract) {
         targetContract = _targetContracts[chainSelector];
     }
@@ -75,11 +62,10 @@ abstract contract CCIPBase is Ownable2Step, CCIPReceiver {
         bytes32 receiver,
         bytes memory data,
         Client.EVMTokenAmount[] memory tokenAmounts,
+        address feeToken,
         uint256 maxFee,
         uint256 gasLimit
     ) internal {
-        address feeToken = _feeToken;
-
         Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({
             receiver: Bytes.toBytes(receiver),
             data: data,
@@ -100,15 +86,5 @@ abstract contract CCIPBase is Ownable2Step, CCIPReceiver {
         emit MessageSent(messageId);
     }
 
-    function _transferTokensFrom(Client.EVMTokenAmount[] memory tokenAmounts, address from) internal {
-        for (uint256 i; i < tokenAmounts.length; ++i) {
-            address token = tokenAmounts[i].token;
-
-            if (!_trustedTokens[token]) revert UntrustedToken(token);
-
-            IERC20(token).safeTransferFrom(from, address(this), tokenAmounts[i].amount);
-        }
-    }
-
-    function _handleFee(address feeToken, uint256 maxFee, uint256 fee) internal view virtual {}
+    function _handleFee(address feeToken, uint256 maxFee, uint256 fee) internal virtual {}
 }
