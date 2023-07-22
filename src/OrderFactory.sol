@@ -23,13 +23,15 @@ contract OrderFactory is Ownable2Step, CCIPBase {
     error SameFeeRecipient(address feeRecipient);
     error UnsupportedChain(uint64 chainSelector);
     error OrderAlreadyPending(uint64 chainSelector, uint256 orderId);
-    error InvalidSender(bytes sender);
+    error InvalidSender(bytes32 sender);
     error InvalidTakerToken(bytes32 token, bytes32 takerToken);
     error InvalidTakerAmount(uint256 amount, uint256 takerAmount);
+    error PendingFillNotExpired();
 
     event OrderCreated(uint256 indexed orderId, Party maker, Party taker);
     event OrderFilled(uint256 indexed orderId);
     event OrderCancelled(uint256 indexed orderId);
+    event PendingFillCancelled(uint64 indexed chainSelector, uint256 orderId);
     event TakerFeeSet(uint48 takerFee);
     event MakerFeeSet(uint48 makerFee);
     event FeeRecipientSet(address feeRecipient);
@@ -60,8 +62,16 @@ contract OrderFactory is Ownable2Step, CCIPBase {
         Party taker;
     }
 
+    struct PendingFill {
+        bytes32 account;
+        bytes32 token;
+        uint256 amount;
+        uint256 timestamp;
+    }
+
     uint256 public constant BASIS_POINTS = 10000;
     uint256 public constant MAX_FEE = 500 / BASIS_POINTS; // 5%
+    uint256 public constant MIN_PENDING_FILL_DURATION = 1 days;
 
     uint64 public immutable currentChainSelector;
 
@@ -72,7 +82,7 @@ contract OrderFactory is Ownable2Step, CCIPBase {
     address private _feeRecipient;
 
     mapping(uint256 => Order) private _orders;
-    mapping(uint64 => mapping(uint256 => Party)) private _parties;
+    mapping(uint64 => mapping(uint256 => PendingFill)) private _pendingFills;
 
     constructor(address router, uint64 chainSelector, uint48 takerFee, uint48 makerFee, address feeRecipient)
         CCIPBase(router)
@@ -113,11 +123,12 @@ contract OrderFactory is Ownable2Step, CCIPBase {
 
         if (targetContract == 0) revert UnsupportedChain(chainSelector);
         if (!_isTrustedToken(token.toAddress())) revert UntrustedToken(token.toAddress());
-        if (_parties[chainSelector][orderId].account != 0) revert OrderAlreadyPending(chainSelector, orderId);
+        if (_pendingFills[chainSelector][orderId].account != 0) revert OrderAlreadyPending(chainSelector, orderId);
 
         if (chainSelector == currentChainSelector) return _fillOrder(orderId);
 
-        _parties[chainSelector][orderId] = Party({account: msg.sender.toBytes32(), token: token, amount: amount});
+        _pendingFills[chainSelector][orderId] =
+            PendingFill({account: msg.sender.toBytes32(), token: token, amount: amount, timestamp: block.timestamp});
 
         IERC20(token.toAddress()).safeTransferFrom(msg.sender, address(this), amount);
 
@@ -143,6 +154,19 @@ contract OrderFactory is Ownable2Step, CCIPBase {
         IERC20(order.maker.token.toAddress()).safeTransfer(order.maker.account.toAddress(), order.maker.amount);
 
         emit OrderCancelled(orderId);
+    }
+
+    function cancelPendingFill(uint64 chainSelector, uint256 orderId) external {
+        PendingFill storage pendingFill = _pendingFills[chainSelector][orderId];
+
+        if (pendingFill.account != msg.sender.toBytes32()) revert InvalidSender(msg.sender.toBytes32());
+        if (pendingFill.timestamp + MIN_PENDING_FILL_DURATION > block.timestamp) revert PendingFillNotExpired();
+
+        delete _pendingFills[chainSelector][orderId];
+
+        IERC20(pendingFill.token.toAddress()).safeTransfer(msg.sender, pendingFill.amount);
+
+        emit PendingFillCancelled(chainSelector, orderId);
     }
 
     function setTakerFee(uint48 takerFee) external onlyOwner {
@@ -218,7 +242,7 @@ contract OrderFactory is Ownable2Step, CCIPBase {
 
     function _ccipReceive(Client.Any2EVMMessage memory message) internal override {
         if (_getTargetContract(message.sourceChainSelector) != Bytes.toBytes32(message.sender)) {
-            revert InvalidSender(message.sender);
+            revert InvalidSender(message.sender.toBytes32());
         }
 
         (CCIPAction action, bytes32 sender, bytes32 token, uint256 amount, uint256 orderId) =
@@ -278,7 +302,7 @@ contract OrderFactory is Ownable2Step, CCIPBase {
         Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](1);
         tokenAmounts[0] = Client.EVMTokenAmount({token: token.toAddress(), amount: amount - takerFeeAmount});
 
-        delete _parties[message.sourceChainSelector][orderId];
+        delete _pendingFills[message.sourceChainSelector][orderId];
 
         _ccipSend(
             message.sourceChainSelector,
