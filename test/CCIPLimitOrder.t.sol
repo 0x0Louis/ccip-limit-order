@@ -64,7 +64,7 @@ contract CCIPLimitOrderTest is Test {
         vm.label(address(forwarderRouterB), "forwarderRouterB");
     }
 
-    function test_CreateOrder() public {
+    function test_FillOrderMultiChain() public {
         vm.startPrank(alice);
         tokenA.mint(alice, 1e18);
         tokenA.approve(address(ccipLimitOrderA), 1e18);
@@ -83,8 +83,33 @@ contract CCIPLimitOrderTest is Test {
         tokenB.approve(address(ccipLimitOrderB), 10e18);
 
         ccipLimitOrderB.fillOrder(CHAIN_SELECTOR_A, orderId, address(tokenB).toBytes32(), 10e18);
-
         vm.stopPrank();
+
+        assertEq(tokenA.balanceOf(address(ccipLimitOrderA)), 1e18, "test_FillOrderMultiChain::1");
+        assertEq(tokenB.balanceOf(address(ccipLimitOrderB)), 10e18, "test_FillOrderMultiChain::2");
+        assertEq(tokenA.balanceOf(bob), 0, "test_FillOrderMultiChain::3");
+        assertEq(tokenB.balanceOf(alice), 0, "test_FillOrderMultiChain::4");
+
+        forwarderRouterA.routeMessage();
+
+        assertEq(tokenA.balanceOf(address(ccipLimitOrderA)), 0, "test_FillOrderMultiChain::5");
+        assertEq(tokenB.balanceOf(address(ccipLimitOrderB)), 10e18, "test_FillOrderMultiChain::6");
+        assertEq(tokenA.balanceOf(bob), 0, "test_FillOrderMultiChain::7");
+        assertEq(tokenB.balanceOf(alice), 0, "test_FillOrderMultiChain::8");
+
+        forwarderRouterB.routeMessage();
+
+        assertEq(tokenA.balanceOf(address(ccipLimitOrderA)), 0, "test_FillOrderMultiChain::9");
+        assertEq(tokenB.balanceOf(address(ccipLimitOrderB)), 0, "test_FillOrderMultiChain::10");
+        assertEq(tokenA.balanceOf(bob), 1e18, "test_FillOrderMultiChain::11");
+        assertEq(tokenB.balanceOf(alice), 0, "test_FillOrderMultiChain::12");
+
+        forwarderRouterA.routeMessage();
+
+        assertEq(tokenA.balanceOf(address(ccipLimitOrderA)), 0, "test_FillOrderMultiChain::13");
+        assertEq(tokenB.balanceOf(address(ccipLimitOrderB)), 0, "test_FillOrderMultiChain::14");
+        assertEq(tokenA.balanceOf(bob), 1e18, "test_FillOrderMultiChain::15");
+        assertEq(tokenB.balanceOf(alice), 10e18, "test_FillOrderMultiChain::16");
     }
 }
 
@@ -105,6 +130,9 @@ contract MockForwarderRouter {
 
     uint64 public immutable currentChainSelector;
     mapping(uint64 => address) public targetContracts;
+
+    address public nextReceiver;
+    Client.Any2EVMMessage public nextMessage;
 
     constructor(uint64 _currentChainSelector) {
         currentChainSelector = _currentChainSelector;
@@ -150,10 +178,23 @@ contract MockForwarderRouter {
             token.safeTransfer(targetContract, amount);
         }
 
-        try MockForwarderRouter(targetContract).routeMessage(receiver, any2evmMessage) {} catch {}
+        MockForwarderRouter(targetContract).setNextMessage(receiver, any2evmMessage);
     }
 
-    function routeMessage(address receiver, Client.Any2EVMMessage calldata message) external {
+    function setNextMessage(address receiver, Client.Any2EVMMessage calldata message) external {
+        nextReceiver = receiver;
+        nextMessage = message;
+    }
+
+    function routeMessage() external {
+        Client.Any2EVMMessage memory message = nextMessage;
+        address receiver = nextReceiver;
+
+        require(nextReceiver != address(0), "No message to route");
+
+        delete nextMessage;
+        delete nextReceiver;
+
         for (uint256 i = 0; i < message.destTokenAmounts.length; i++) {
             IERC20 token = IERC20(message.destTokenAmounts[i].token);
             uint256 amount = message.destTokenAmounts[i].amount;
