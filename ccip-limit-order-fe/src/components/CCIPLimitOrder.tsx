@@ -77,6 +77,7 @@ function LOClaimTokens({ contractAddress }: { contractAddress: Address }) {
       maxFeeAmount,
       gasLimit,
     ],
+    value: maxFeeAmount,
     enabled: Boolean(
       address &&
         chainSelector &&
@@ -181,6 +182,7 @@ function LOFillOrder({ contractAddress }: { contractAddress: Address }) {
       maxFeeAmount,
       gasLimit,
     ],
+    value: maxFeeAmount,
     enabled: Boolean(
       address &&
         chainSelector &&
