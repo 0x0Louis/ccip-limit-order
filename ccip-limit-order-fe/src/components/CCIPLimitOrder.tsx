@@ -12,6 +12,7 @@ import {
   useCcipLimitOrderFillOrder,
   usePrepareCcipLimitOrderSendTokens,
   useCcipLimitOrderSendTokens,
+  useCcipLimitOrderCurrentChainSelector,
   useErc20Allowance,
   usePrepareErc20Approve,
   useErc20Approve,
@@ -27,6 +28,7 @@ export function CCIPLimitOrder() {
   return (
     <div>
       Contract Address: {contractAddress}
+      <LOCurrentChainSelector contractAddress={contractAddress} />
       <h3>Internal Balance</h3>
       <LOGetBalance contractAddress={contractAddress} />
       <h3>Info</h3>
@@ -305,7 +307,9 @@ function LOCreateOrder({ contractAddress }: { contractAddress: Address }) {
   const { address } = useAccount();
   const [makerTokenAddress, setMakerTokenAddress] = useState<string>();
   const [makerAmount, setMakerAmount] = useState<string>();
-  const [takerAddress, setTakerAddress] = useState<string>();
+  const [takerAddress, setTakerAddress] = useState<string>(
+    "0x0000000000000000000000000000000000000000000000000000000000000000"
+  );
 
   const [takerTokenAddress, setTakerTokenAddress] = useState<Address>();
   const [takerAmount, setTakerAmount] = useState<string>();
@@ -435,7 +439,6 @@ function LOGetOrder({ contractAddress }: { contractAddress: Address }) {
         value={orderId}
       />
       <br />
-      {/* Order: {order?.state.toString()} */}
       State: {_convertState(order?.state?.toString())}
       {order && order?.state.toString() !== "0" && (
         <OrderDetails order={order} />
@@ -515,6 +518,19 @@ function Allowance({ spender }: { spender: Address }) {
       <div>Current Allowance: {balance?.toString()}</div>
     </div>
   );
+}
+
+function LOCurrentChainSelector({
+  contractAddress,
+}: {
+  contractAddress: Address;
+}) {
+  const { data: chainSelector } = useCcipLimitOrderCurrentChainSelector({
+    address: contractAddress,
+    watch: true,
+  });
+
+  return <div>Current Chain Selector: {chainSelector?.toString()}</div>;
 }
 
 function _convertState(state: string): string {
