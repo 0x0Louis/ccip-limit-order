@@ -26,6 +26,7 @@ contract CCIPLimitOrder is CCIPBase {
     error InsufficientNative(uint256 value, uint256 fee);
     error InvalidFeeToken(address feeToken);
     error InvalidAmounts(uint256 makerAmount, uint256 takerAmount);
+    error FeeNonNative();
 
     event OrderCreated(uint256 indexed orderId, Party maker, Party taker);
     event OrderFilled(uint256 indexed orderId);
@@ -128,7 +129,7 @@ contract CCIPLimitOrder is CCIPBase {
 
         _orders[orderId] = Order({state: State.Created, maker: maker, taker: taker});
 
-        IERC20(maker.token).safeTransferFrom(msg.sender, address(this), maker.amount);
+        maker.token.safeTransferFrom(msg.sender, address(this), maker.amount);
 
         emit OrderCreated(orderId, maker, taker);
     }
@@ -144,6 +145,7 @@ contract CCIPLimitOrder is CCIPBase {
     ) external payable returns (bool) {
         if (chainSelector == currentChainSelector) {
             _fillOrder(orderId);
+            _handleFee(feeToken, maxFee, 0);
             return true;
         }
 
@@ -152,7 +154,7 @@ contract CCIPLimitOrder is CCIPBase {
         bytes32 targetContract = _getTargetContract(chainSelector);
         if (targetContract == 0) revert UnsupportedChain(chainSelector);
 
-        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
+        token.safeTransferFrom(msg.sender, address(this), amount);
 
         Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](1);
         tokenAmounts[0] = Client.EVMTokenAmount({token: token, amount: amount});
@@ -207,6 +209,7 @@ contract CCIPLimitOrder is CCIPBase {
             for (uint256 i = 0; i < tokenAmounts.length; i++) {
                 IERC20(tokenAmounts[i].token).safeTransfer(accountAddress, tokenAmounts[i].amount);
             }
+            _handleFee(feeToken, maxFee, 0);
         } else {
             bytes32 targetContract = _getTargetContract(chainSelector);
             if (targetContract == 0) revert UnsupportedChain(chainSelector);
@@ -391,8 +394,9 @@ contract CCIPLimitOrder is CCIPBase {
             if (msg.value > fee) _transferNative(msg.sender, msg.value - fee);
         } else {
             if (feeToken != link) revert InvalidFeeToken(feeToken);
+            if (msg.value > 0) revert FeeNonNative();
 
-            IERC20(feeToken).safeTransferFrom(msg.sender, address(this), fee);
+            if (fee > 0) IERC20(feeToken).safeTransferFrom(msg.sender, address(this), fee);
         }
     }
 
