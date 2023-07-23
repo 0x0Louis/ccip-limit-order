@@ -129,7 +129,7 @@ contract CCIPLimitOrder is CCIPBase {
 
         _orders[orderId] = Order({state: State.Created, maker: maker, taker: taker});
 
-        maker.token.safeTransferFrom(msg.sender, address(this), maker.amount);
+        IERC20(maker.token).safeTransferFrom(msg.sender, address(this), maker.amount);
 
         emit OrderCreated(orderId, maker, taker);
     }
@@ -154,7 +154,7 @@ contract CCIPLimitOrder is CCIPBase {
         bytes32 targetContract = _getTargetContract(chainSelector);
         if (targetContract == 0) revert UnsupportedChain(chainSelector);
 
-        token.safeTransferFrom(msg.sender, address(this), amount);
+        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
 
         Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](1);
         tokenAmounts[0] = Client.EVMTokenAmount({token: token, amount: amount});
