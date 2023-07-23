@@ -72,7 +72,7 @@ function LOClaimTokens({ contractAddress }: { contractAddress: Address }) {
     args: [
       chainSelector,
       _convertToBytes32(address?.toString()),
-      [tokenAddress, amount],
+      [[tokenAddress, amount]],
       feeTokenAddress,
       maxFeeAmount,
       gasLimit,
