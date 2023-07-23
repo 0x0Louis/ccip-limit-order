@@ -357,6 +357,7 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
             _storeToken(sender, makerToken, makerAmount);
         } else {
             order.state = State.Filled;
+            order.taker.account = sender;
 
             address takerToken = order.maker.token;
 
