@@ -2,8 +2,8 @@ import { useAccount } from "wagmi";
 
 import { Account } from "./components/Account";
 import { Connect } from "./components/Connect";
-import { ERC20 } from "./components/ERC20";
 import { NetworkSwitcher } from "./components/NetworkSwitcher";
+import { CCIPLimitOrder } from "./components/CCIPLimitOrder";
 
 export function App() {
   const { isConnected } = useAccount();
@@ -17,8 +17,8 @@ export function App() {
       {isConnected && (
         <>
           <Account />
-          <ERC20 />
           <NetworkSwitcher />
+          <CCIPLimitOrder />
         </>
       )}
     </>
