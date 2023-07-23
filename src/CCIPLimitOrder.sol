@@ -2,11 +2,10 @@
 pragma solidity ^0.8.13;
 
 import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 
 import {CCIPBase, Client, Bytes} from "./CCIPBase.sol";
 
-contract CCIPLimitOrder is Ownable2Step, CCIPBase {
+contract CCIPLimitOrder is CCIPBase {
     using SafeERC20 for IERC20;
     using Bytes for bytes;
     using Bytes for bytes32;
@@ -65,7 +64,6 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
 
     uint256 public constant BASIS_POINTS = 10000;
     uint256 public constant MAX_FEE = BASIS_POINTS / 20; // 5%
-    uint256 public constant MIN_PENDING_FILL_DURATION = 1 days;
 
     uint64 public immutable currentChainSelector;
     address public immutable link;
@@ -114,6 +112,10 @@ contract CCIPLimitOrder is Ownable2Step, CCIPBase {
 
     function getBalance(bytes32 account, address token) external view returns (uint256 balance) {
         return _balances[account][token];
+    }
+
+    function getNextOrderId() external view returns (uint256 orderId) {
+        return _orderCount;
     }
 
     function createOrder(Party calldata maker, Party calldata taker) external returns (uint256 orderId) {
