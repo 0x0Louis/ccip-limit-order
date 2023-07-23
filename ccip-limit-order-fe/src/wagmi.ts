@@ -13,7 +13,7 @@ const walletConnectProjectId = "51215d598d096b3100350fbdbeea0576";
 const { chains, publicClient, webSocketPublicClient } = configureChains(
   [avalancheFuji, sepolia],
   [
-    alchemyProvider({ apiKey: process.env.VITE_ALCHEMY_API_KEY }),
+    alchemyProvider({ apiKey: import.meta.env.VITE_ALCHEMY_API_KEY }),
     publicProvider(),
   ]
 );
